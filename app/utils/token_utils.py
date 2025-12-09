@@ -12,14 +12,14 @@ def _get_jwt_secret() -> str:
     if "value" in JWT_SECRET_CACHE:
         return JWT_SECRET_CACHE["value"]
 
-    direct = os.getenv("JWT_SECRET_VALUE")
+    direct = os.getenv("JWT_SECRET_SECRET_NAME")
     if direct:
         JWT_SECRET_CACHE["value"] = direct
         return direct
 
     secret_name = os.getenv("JWT_SECRET_NAME")
     if not secret_name:
-        raise RuntimeError("JWT_SECRET_NAME o JWT_SECRET_VALUE no configurados")
+        raise RuntimeError("JWT_SECRET_NAME o JWT_SECRET_SECRET_NAME no configurados")
 
     client = boto3.client("secretsmanager")
     response = client.get_secret_value(SecretId=secret_name)
