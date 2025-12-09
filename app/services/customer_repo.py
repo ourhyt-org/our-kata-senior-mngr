@@ -3,24 +3,28 @@ from typing import Optional, Dict, Any, List
 import os
 import requests
 import json
+import urllib3
 
 CUSTOMERS_API_URL = os.environ.get(
     "CUSTOMERS_API_URL",
     "https://demo1097960.mockable.io/customers",
 )
 
+# Desactivar warnings de certificados solo para este demo
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 
 def fetch_all_customers() -> Optional[List[Dict[str, Any]]]:
     print("➡️  Fetching customers from:", CUSTOMERS_API_URL)
 
     try:
-        resp = requests.get(CUSTOMERS_API_URL, timeout=5)
+        # 👇 verify=False para saltarnos la validación SSL del mock
+        resp = requests.get(CUSTOMERS_API_URL, timeout=5, verify=False)
         print(f"⬅️  Response status: {resp.status_code}")
 
         resp.raise_for_status()
 
         data = resp.json()
-
         print("⬅️  Raw response:", json.dumps(data, indent=2))
 
         if not isinstance(data, list):
