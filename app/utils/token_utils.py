@@ -1,10 +1,53 @@
 import os
 import time
+import json
+
 import jwt
 from jwt import InvalidTokenError
+import boto3
 
-JWT_SECRET = os.environ.get("JWT_SECRET", "DEV_SECRET")
 JWT_ALG = "HS256"
+
+# Cache en memoria para no pegarle a Secrets Manager en cada request
+_cached_jwt_secret = None
+
+
+def _load_jwt_secret() -> str:
+    global _cached_jwt_secret
+
+    if _cached_jwt_secret:
+        return _cached_jwt_secret
+
+    # 1) Intentar desde Secrets Manager
+    secret_name = os.environ.get("JWT_SECRET_SECRET_NAME")
+    if secret_name:
+        region = os.environ.get("AWS_REGION", "us-east-1")
+        client = boto3.client("secretsmanager", region_name=region)
+
+        resp = client.get_secret_value(SecretId=secret_name)
+        secret_string = resp.get("SecretString", "")
+
+        try:
+            data = json.loads(secret_string)
+            secret_value = data.get("JWT_SECRET")
+        except json.JSONDecodeError:
+            # Si el secreto no es JSON, asumimos que el SecretString ES la llave
+            secret_value = secret_string
+
+        if not secret_value:
+            raise RuntimeError("JWT_SECRET no encontrado dentro del secreto de Secrets Manager")
+
+        _cached_jwt_secret = secret_value
+        return _cached_jwt_secret
+
+    # 2) Fallback: variable de entorno simple (útil para local)
+    env_secret = os.environ.get("JWT_SECRET")
+    if not env_secret:
+        raise RuntimeError("No JWT secret configured (ni Secrets Manager ni env var)")
+
+    _cached_jwt_secret = env_secret
+    return _cached_jwt_secret
+
 
 def generate_auth_token(auth_id, doc_type, doc_number, phone, ttl_seconds=600):
     now = int(time.time())
@@ -15,13 +58,16 @@ def generate_auth_token(auth_id, doc_type, doc_number, phone, ttl_seconds=600):
         "doc_number": doc_number,
         "phone": phone,
         "iat": now,
-        "exp": now + ttl_seconds
+        "exp": now + ttl_seconds,
     }
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
+
+    secret = _load_jwt_secret()
+    return jwt.encode(payload, secret, algorithm=JWT_ALG)
 
 
 def verify_auth_token(token: str):
+    secret = _load_jwt_secret()
     try:
-        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+        return jwt.decode(token, secret, algorithms=[JWT_ALG])
     except InvalidTokenError as e:
         raise ValueError("Invalid token: " + str(e))
