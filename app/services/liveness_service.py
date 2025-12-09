@@ -1,9 +1,13 @@
-# app/services/liveness_service.py
-from dataclasses import dataclass
-from typing import Optional
-from io import BytesIO
 
-from PIL import Image, ImageChops
+from dataclasses import dataclass
+from typing import Optional, List
+import os
+import json
+
+import boto3
+
+s3_client = boto3.client("s3")
+lambda_client = boto3.client("lambda")
 
 
 @dataclass
@@ -16,60 +20,96 @@ class LivenessResult:
     next_step: str
 
 
-def _prepare_image(image_bytes: bytes) -> Image.Image:
-    img = Image.open(BytesIO(image_bytes))
-    img = img.convert("L")
-    img = img.resize((64, 64))
-    return img
+LIVENESS_FRAMES_BUCKET = os.getenv("LIVENESS_FRAMES_BUCKET", "ourhyt-assets")
+LIVENESS_ENGINE_NAME = os.getenv("LIVENESS_ENGINE_NAME", "ourhyt-kata-liveness-engine-dev")
+
+
+def _upload_frame_to_s3(
+    bucket: str,
+    key: str,
+    content: bytes,
+    content_type: str = "image/jpeg",
+) -> None:
+    s3_client.put_object(
+        Bucket=bucket,
+        Key=key,
+        Body=content,
+        ContentType=content_type,
+    )
+
+
+def _invoke_liveness_engine(
+    auth_id: str,
+    challenge_type: str,
+    bucket: str,
+    frame_keys: List[str],
+) -> dict:
+    payload = {
+        "authId": auth_id,
+        "challengeType": challenge_type,
+        "bucket": bucket,
+        "frameKeys": frame_keys,
+    }
+
+    response = lambda_client.invoke(
+        FunctionName=LIVENESS_ENGINE_NAME,
+        InvocationType="RequestResponse",
+        Payload=json.dumps(payload).encode("utf-8"),
+    )
+
+    raw_body = response["Payload"].read().decode("utf-8")
+
+    try:
+        body = json.loads(raw_body)
+    except json.JSONDecodeError:
+        raise ValueError(f"Respuesta inválida del liveness-engine: {raw_body}")
+
+    if isinstance(body, dict) and "statusCode" in body:
+        engine_payload = json.loads(body.get("body", "{}"))
+    else:
+        engine_payload = body
+
+    return engine_payload
 
 
 def evaluate_liveness(
     auth_id: str,
     challenge_type: str,
-    frame1_bytes: bytes,
-    frame2_bytes: bytes,
-    threshold: float = 0.08,
+    doc_number: str,
+    frames_bytes: List[bytes],
 ) -> LivenessResult:
-    try:
-        img1 = _prepare_image(frame1_bytes)
-        img2 = _prepare_image(frame2_bytes)
-    except Exception as e:
-        raise ValueError(f"Alguno de los frames no es una imagen válida: {str(e)}")
+    if not doc_number:
+        doc_number = "unknown-doc"
 
-    diff = ImageChops.difference(img1, img2)
+    if not frames_bytes or len(frames_bytes) < 2:
+        raise ValueError("Se requieren al menos 2 frames para liveness")
 
-    histogram = diff.histogram()
-    total_pixels = 64 * 64
-    sum_diff = 0
+    base_prefix = f"liveness/{doc_number}/{auth_id}"
 
-    for value, count in enumerate(histogram):
-        sum_diff += value * count
+    frame_keys: List[str] = []
 
-    avg_diff = sum_diff / float(total_pixels)
+    for idx, content in enumerate(frames_bytes, start=1):
+        key = f"{base_prefix}/frame_{idx:03d}.jpg"
+        _upload_frame_to_s3(LIVENESS_FRAMES_BUCKET, key, content)
+        frame_keys.append(key)
 
-    score = avg_diff / 255.0
-
-    if score < threshold:
-        passed = False
-        reason = (
-            f"Cambio muy bajo entre frames (score={score:.3f}). "
-            "Podría ser una foto fija o video sin interacción."
-        )
-        next_step = "REJECTED"
-    else:
-        passed = True
-        reason = None
-        next_step = "COMPLETED"
-
-    print(
-        f"[LIVENESS] authId={auth_id} challenge={challenge_type} "
-        f"score={score:.3f} passed={passed}"
+    engine_result = _invoke_liveness_engine(
+        auth_id=auth_id,
+        challenge_type=challenge_type,
+        bucket=LIVENESS_FRAMES_BUCKET,
+        frame_keys=frame_keys,
     )
+
+    liveness_score = float(engine_result.get("livenessScore", 0.0))
+    passed = bool(engine_result.get("passed", False))
+    reason = engine_result.get("reason")
+
+    next_step = "COMPLETED" if passed else "REJECTED"
 
     return LivenessResult(
         auth_id=auth_id,
         challenge_type=challenge_type,
-        liveness_score=score,
+        liveness_score=liveness_score,
         passed=passed,
         reason=reason,
         next_step=next_step,
