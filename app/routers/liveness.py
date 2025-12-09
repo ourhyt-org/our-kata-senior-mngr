@@ -1,6 +1,6 @@
 from fastapi import APIRouter, UploadFile, File, Header, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 
 from app.utils.token_utils import verify_auth_token
 from app.services.liveness_service import evaluate_liveness
@@ -19,8 +19,7 @@ class LivenessResponse(BaseModel):
 
 @router.post("/liveness", response_model=LivenessResponse)
 async def liveness_check(
-    frame1: UploadFile = File(...),
-    frame2: UploadFile = File(...),
+    frames: List[UploadFile] = File(...),
     authorization: Optional[str] = Header(None),
 ):
     if not authorization or not authorization.lower().startswith("bearer "):
@@ -35,24 +34,29 @@ async def liveness_check(
 
     auth_id = claims.get("auth_id")
     challenge_type = claims.get("challenge_type")
+    doc_number = claims.get("doc_number")
 
     if not auth_id:
         raise HTTPException(status_code=400, detail="Token inválido o sin authId")
     if not challenge_type:
         raise HTTPException(status_code=400, detail="Token sin challengeType")
 
-    frame1_bytes = await frame1.read()
-    frame2_bytes = await frame2.read()
+    if not frames or len(frames) < 2:
+        raise HTTPException(status_code=400, detail="Se requieren al menos 2 frames")
 
-    if not frame1_bytes or not frame2_bytes:
-        raise HTTPException(status_code=400, detail="Ambos frames son requeridos")
+    frame_bytes_list = []
+    for f in frames:
+        content = await f.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="Uno de los frames viene vacío")
+        frame_bytes_list.append(content)
 
     try:
         result = evaluate_liveness(
             auth_id=auth_id,
             challenge_type=challenge_type,
-            frame1_bytes=frame1_bytes,
-            frame2_bytes=frame2_bytes,
+            doc_number=doc_number,
+            frames_bytes=frame_bytes_list,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
