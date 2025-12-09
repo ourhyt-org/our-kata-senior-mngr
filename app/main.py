@@ -11,7 +11,6 @@ app = FastAPI(
     description="Autenticación inteligente con OCR y Liveness"
 )
 
-# Routers
 app.include_router(start_router, prefix="/kata/auth")
 app.include_router(document_router, prefix="/kata/auth")
 app.include_router(liveness_router, prefix="/kata/auth")

@@ -12,10 +12,8 @@ class StartRequest(BaseModel):
 
 @router.post("/start")
 def start_auth(data: StartRequest):
-    # Crear ID único de sesión
     auth_id = str(uuid.uuid4())
 
-    # Generar token firmado
     token = generate_auth_token(
         auth_id=auth_id,
         doc_type=data.docType,
