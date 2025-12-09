@@ -3,8 +3,7 @@ name: Deploy KATA Lambda (DEV)
 on:
   push:
     branches:
-      - dev
-      - feature/*
+      - qa
     paths:
       - "app/**"
       - "requirements.txt"
