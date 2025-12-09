@@ -1,8 +1,7 @@
-# app/main.py
+
 import os
 import sys
 
-# Agregar /var/task/packages al sys.path
 CURRENT_DIR = os.path.dirname(__file__)
 PACKAGES_DIR = os.path.join(CURRENT_DIR, "..", "packages")
 if PACKAGES_DIR not in sys.path:
