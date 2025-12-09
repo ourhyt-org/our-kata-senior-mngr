@@ -2,9 +2,10 @@
 packages/
 *.dist-info/
 __pycache__/
-
-# Python
 *.pyc
 
 # Build artifacts
 kata-lambda.zip
+
+# OS / Editor files
+.DS_Store

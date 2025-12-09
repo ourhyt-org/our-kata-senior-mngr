@@ -1,0 +1,98 @@
+name: Deploy KATA Lambda (DEV)
+
+on:
+  push:
+    branches:
+      - dev
+      - feature/*
+    paths:
+      - "app/**"
+      - "requirements.txt"
+      - "build.sh"
+      - ".github/workflows/deploy-kata-lambda.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_REGION: us-east-1
+      FUNCTION_NAME: kata-auth-document-dev
+      ALIAS_NAME: kata-auth-document-dev
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies into packages/
+        run: |
+          rm -rf packages kata-lambda.zip
+          mkdir -p packages
+          pip install --upgrade pip
+          pip install -r requirements.txt -t packages/
+
+      - name: Build Lambda ZIP
+        run: |
+          zip -r9 kata-lambda.zip packages/
+          zip -r9 kata-lambda.zip app/
+
+      - name: Upload code to Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --zip-file fileb://kata-lambda.zip
+
+      - name: Wait for Lambda update to complete
+        run: |
+          aws lambda wait function-updated \
+            --function-name ${{ env.FUNCTION_NAME }}
+
+      - name: Publish new version
+        id: publish
+        run: |
+          VERSION=$(aws lambda publish-version \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --query 'Version' --output text)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create alias if missing
+        run: |
+          ALIAS_EXISTS=$(aws lambda list-aliases \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --query "Aliases[?Name=='${{ env.ALIAS_NAME }}'] | length(@)" \
+            --output text)
+          
+          if [ "$ALIAS_EXISTS" = "0" ]; then
+            echo "Alias not found — creating…"
+            aws lambda create-alias \
+              --function-name ${{ env.FUNCTION_NAME }} \
+              --name ${{ env.ALIAS_NAME }} \
+              --function-version ${{ steps.publish.outputs.version }}
+          else
+            echo "Alias exists — updating…"
+          fi
+
+      - name: Update alias to new version
+        run: |
+          aws lambda update-alias \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --name ${{ env.ALIAS_NAME }} \
+            --function-version ${{ steps.publish.outputs.version }}
+
+      - name: Deployment OK
+        run: echo "🚀 KATA Lambda deployed successfully!"
