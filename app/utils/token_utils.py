@@ -8,7 +8,6 @@ import boto3
 
 JWT_ALG = "HS256"
 
-# Cache en memoria para no pegarle a Secrets Manager en cada request
 _cached_jwt_secret = None
 
 
@@ -18,7 +17,6 @@ def _load_jwt_secret() -> str:
     if _cached_jwt_secret:
         return _cached_jwt_secret
 
-    # 1) Intentar desde Secrets Manager
     secret_name = os.environ.get("JWT_SECRET_SECRET_NAME")
     if secret_name:
         region = os.environ.get("AWS_REGION", "us-east-1")
@@ -31,7 +29,6 @@ def _load_jwt_secret() -> str:
             data = json.loads(secret_string)
             secret_value = data.get("JWT_SECRET")
         except json.JSONDecodeError:
-            # Si el secreto no es JSON, asumimos que el SecretString ES la llave
             secret_value = secret_string
 
         if not secret_value:
@@ -40,7 +37,6 @@ def _load_jwt_secret() -> str:
         _cached_jwt_secret = secret_value
         return _cached_jwt_secret
 
-    # 2) Fallback: variable de entorno simple (útil para local)
     env_secret = os.environ.get("JWT_SECRET")
     if not env_secret:
         raise RuntimeError("No JWT secret configured (ni Secrets Manager ni env var)")
