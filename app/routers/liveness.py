@@ -1,22 +1,76 @@
-from fastapi import APIRouter, Header, HTTPException
+# app/routers/liveness.py
+from fastapi import APIRouter, UploadFile, File, Header, Form, HTTPException
+from pydantic import BaseModel
+from typing import Optional
+
 from app.utils.token_utils import verify_auth_token
+from app.services.liveness_service import evaluate_liveness
 
 router = APIRouter()
 
-@router.post("/liveness")
-def liveness_check(authorization: str = Header(None)):
-    if not authorization:
-        raise HTTPException(401, "Missing Authorization header")
 
-    token = authorization.replace("Bearer ", "")
+class LivenessResponse(BaseModel):
+    authId: str
+    challengeType: str
+    livenessScore: float
+    passed: bool
+    reason: Optional[str] = None
+    nextStep: str
+
+
+@router.post("/liveness", response_model=LivenessResponse)
+async def liveness_check(
+    challengeType: str = Form(...),
+    frame1: UploadFile = File(...),
+    frame2: UploadFile = File(...),
+    authorization: Optional[str] = Header(None),
+):
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+
+    token = authorization.split(" ", 1)[1].strip()
 
     try:
         claims = verify_auth_token(token)
-    except Exception as e:
-        raise HTTPException(401, str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
 
-    return {
-        "authId": claims["auth_id"],
-        "liveness": "PASSED",
-        "nextStep": "COMPLETED"
-    }
+    auth_id = claims.get("auth_id")
+    jwt_challenge = claims.get("challenge_type")
+
+    if not auth_id:
+        raise HTTPException(status_code=400, detail="Token inválido o sin authId")
+
+    if not jwt_challenge:
+        raise HTTPException(status_code=400, detail="Token sin challengeType")
+
+    if challengeType != jwt_challenge:
+        raise HTTPException(
+            status_code=400,
+            detail=f"challengeType inválido. Esperado: {jwt_challenge}, recibido: {challengeType}",
+        )
+
+    frame1_bytes = await frame1.read()
+    frame2_bytes = await frame2.read()
+
+    if not frame1_bytes or not frame2_bytes:
+        raise HTTPException(status_code=400, detail="Ambos frames son requeridos")
+
+    try:
+        result = evaluate_liveness(
+            auth_id=auth_id,
+            challenge_type=challengeType,
+            frame1_bytes=frame1_bytes,
+            frame2_bytes=frame2_bytes,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return LivenessResponse(
+        authId=result.auth_id,
+        challengeType=result.challenge_type,
+        livenessScore=result.liveness_score,
+        passed=result.passed,
+        reason=result.reason,
+        nextStep=result.next_step,
+    )

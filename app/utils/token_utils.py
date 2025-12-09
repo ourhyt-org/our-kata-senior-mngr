@@ -1,69 +1,68 @@
 import os
-import time
 import json
+from typing import Dict, Any
 
-import jwt
-from jwt import InvalidTokenError
 import boto3
+import jwt
+from datetime import datetime, timedelta, timezone
 
-JWT_ALG = "HS256"
+JWT_SECRET_CACHE: dict[str, str] = {}
 
-_cached_jwt_secret = None
+def _get_jwt_secret() -> str:
+    if "value" in JWT_SECRET_CACHE:
+        return JWT_SECRET_CACHE["value"]
 
+    direct = os.getenv("JWT_SECRET_VALUE")
+    if direct:
+        JWT_SECRET_CACHE["value"] = direct
+        return direct
 
-def _load_jwt_secret() -> str:
-    global _cached_jwt_secret
+    secret_name = os.getenv("JWT_SECRET_NAME")
+    if not secret_name:
+        raise RuntimeError("JWT_SECRET_NAME o JWT_SECRET_VALUE no configurados")
 
-    if _cached_jwt_secret:
-        return _cached_jwt_secret
+    client = boto3.client("secretsmanager")
+    response = client.get_secret_value(SecretId=secret_name)
+    secret_string = response.get("SecretString")
 
-    secret_name = os.environ.get("JWT_SECRET_SECRET_NAME")
-    if secret_name:
-        region = os.environ.get("AWS_REGION", "us-east-1")
-        client = boto3.client("secretsmanager", region_name=region)
+    if not secret_string:
+        raise RuntimeError("SecretString vacío en Secrets Manager para JWT")
 
-        resp = client.get_secret_value(SecretId=secret_name)
-        secret_string = resp.get("SecretString", "")
+    try:
+        data = json.loads(secret_string)
+        secret_value = data.get("JWT_SECRET")
+    except json.JSONDecodeError:
+        secret_value = secret_string
 
-        try:
-            data = json.loads(secret_string)
-            secret_value = data.get("JWT_SECRET")
-        except json.JSONDecodeError:
-            secret_value = secret_string
+    if not secret_value:
+        raise RuntimeError("No se encontró JWT_SECRET en el secreto")
 
-        if not secret_value:
-            raise RuntimeError("JWT_SECRET no encontrado dentro del secreto de Secrets Manager")
-
-        _cached_jwt_secret = secret_value
-        return _cached_jwt_secret
-
-    env_secret = os.environ.get("JWT_SECRET")
-    if not env_secret:
-        raise RuntimeError("No JWT secret configured (ni Secrets Manager ni env var)")
-
-    _cached_jwt_secret = env_secret
-    return _cached_jwt_secret
+    JWT_SECRET_CACHE["value"] = secret_value
+    return secret_value
 
 
-def generate_auth_token(auth_id, doc_type, doc_number, phone, ttl_seconds=600):
-    now = int(time.time())
+def create_auth_token(
+    claims: Dict[str, Any],
+    expires_in_seconds: int = 600,
+) -> str:
+    secret = _get_jwt_secret()
+    now = datetime.now(tz=timezone.utc)
     payload = {
-        "sub": "auth-session",
-        "auth_id": auth_id,
-        "doc_type": doc_type,
-        "doc_number": doc_number,
-        "phone": phone,
-        "iat": now,
-        "exp": now + ttl_seconds,
+        **claims,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(seconds=expires_in_seconds)).timestamp()),
     }
 
-    secret = _load_jwt_secret()
-    return jwt.encode(payload, secret, algorithm=JWT_ALG)
+    token = jwt.encode(payload, secret, algorithm="HS256")
+    return token
 
 
-def verify_auth_token(token: str):
-    secret = _load_jwt_secret()
+def verify_auth_token(token: str) -> Dict[str, Any]:
+    secret = _get_jwt_secret()
     try:
-        return jwt.decode(token, secret, algorithms=[JWT_ALG])
-    except InvalidTokenError as e:
-        raise ValueError("Invalid token: " + str(e))
+        payload = jwt.decode(token, secret, algorithms=["HS256"])
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise ValueError("Token expirado")
+    except jwt.InvalidTokenError:
+        raise ValueError("Token inválido")
