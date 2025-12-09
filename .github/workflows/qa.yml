@@ -4,12 +4,12 @@ on:
   push:
     branches:
       - qa
-      
+
     paths:
       - "app/**"
       - "requirements.txt"
       - "build.sh"
-      - ".github/workflows/deploy-kata-lambda.yml"
+      - ".github/workflows/qa.yml"
 
 permissions:
   id-token: write
