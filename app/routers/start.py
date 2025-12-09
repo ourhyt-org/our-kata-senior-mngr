@@ -1,24 +1,17 @@
-# app/routers/start.py
-import os
+
 import uuid
 import random
 from typing import Optional
 
-import requests
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.utils.token_utils import create_auth_token
+from app.services.customer_repo import get_customer_by_document
 
 router = APIRouter()
 
-MOCK_CUSTOMERS_URL = os.getenv(
-    "MOCK_CUSTOMERS_URL",
-    "https://demo1097960.mockable.io/customers",
-)
-
 MAX_ALLOWED_RISK = 0.8
-
 CHALLENGES = ("BLINK", "APPROACH")
 
 
@@ -42,27 +35,13 @@ class StartResponse(BaseModel):
 
 @router.post("/start", response_model=StartResponse)
 def start_auth(request: StartRequest):
-    try:
-        print(f"🔍 Searching customer in mock: {MOCK_CUSTOMERS_URL}")
-        resp = requests.get(MOCK_CUSTOMERS_URL, timeout=3)
-        resp.raise_for_status()
-        customers = resp.json()
-        print(f"✅ Mock returned {len(customers)} customers")
-    except Exception as e:
-        print(f"❌ Error calling mock: {e}")
-        raise HTTPException(status_code=502, detail="No se pudo consultar la base de clientes mock")
+    customer = get_customer_by_document(request.docType, request.docNumber)
 
-    customer = next(
-        (
-            c for c in customers
-            if c.get("docType") == request.docType
-            and str(c.get("docNumber")) == str(request.docNumber)
-        ),
-        None,
-    )
-
-    if not customer:
-        raise HTTPException(status_code=403, detail="Documento no registrado en la base de clientes")
+    if customer is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Documento no registrado en la base de clientes",
+        )
 
     blocked = bool(customer.get("blocked", False))
     risk_score = float(customer.get("riskScore", 0.0))
@@ -70,8 +49,13 @@ def start_auth(request: StartRequest):
     reason = customer.get("reason")
 
     if blocked or risk_score > MAX_ALLOWED_RISK:
+        auth_id = str(uuid.uuid4())
+        print(
+            f"[START] REJECTED authId={auth_id} doc={request.docType}-{request.docNumber} "
+            f"blocked={blocked} risk={risk_score}"
+        )
         return StartResponse(
-            authId=str(uuid.uuid4()),
+            authId=auth_id,
             token="",
             nextStep="REJECTED",
             customerStatus=status,
@@ -97,7 +81,7 @@ def start_auth(request: StartRequest):
     token = create_auth_token(claims)
 
     print(
-        f"[START] authId={auth_id} doc={request.docType}-{request.docNumber} "
+        f"[START] OK authId={auth_id} doc={request.docType}-{request.docNumber} "
         f"risk={risk_score} challenge={challenge_type}"
     )
 
