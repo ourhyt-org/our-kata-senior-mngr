@@ -48,8 +48,8 @@ jobs:
 
       - name: Build Lambda ZIP
         run: |
-          zip -r9 kata-lambda.zip packages/
-          zip -r9 kata-lambda.zip app/
+          chmod +x ./build.sh
+          ./build.sh
 
       - name: Upload code to Lambda
         run: |
