@@ -1,5 +1,4 @@
-# app/routers/liveness.py
-from fastapi import APIRouter, UploadFile, File, Header, Form, HTTPException
+from fastapi import APIRouter, UploadFile, File, Header, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 
@@ -20,7 +19,6 @@ class LivenessResponse(BaseModel):
 
 @router.post("/liveness", response_model=LivenessResponse)
 async def liveness_check(
-    challengeType: str = Form(...),
     frame1: UploadFile = File(...),
     frame2: UploadFile = File(...),
     authorization: Optional[str] = Header(None),
@@ -36,19 +34,12 @@ async def liveness_check(
         raise HTTPException(status_code=401, detail=str(e))
 
     auth_id = claims.get("auth_id")
-    jwt_challenge = claims.get("challenge_type")
+    challenge_type = claims.get("challenge_type")
 
     if not auth_id:
         raise HTTPException(status_code=400, detail="Token inválido o sin authId")
-
-    if not jwt_challenge:
+    if not challenge_type:
         raise HTTPException(status_code=400, detail="Token sin challengeType")
-
-    if challengeType != jwt_challenge:
-        raise HTTPException(
-            status_code=400,
-            detail=f"challengeType inválido. Esperado: {jwt_challenge}, recibido: {challengeType}",
-        )
 
     frame1_bytes = await frame1.read()
     frame2_bytes = await frame2.read()
@@ -59,7 +50,7 @@ async def liveness_check(
     try:
         result = evaluate_liveness(
             auth_id=auth_id,
-            challenge_type=challengeType,
+            challenge_type=challenge_type,
             frame1_bytes=frame1_bytes,
             frame2_bytes=frame2_bytes,
         )
