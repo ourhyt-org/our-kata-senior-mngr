@@ -1,3 +1,13 @@
+# app/main.py
+import os
+import sys
+
+# Agregar /var/task/packages al sys.path
+CURRENT_DIR = os.path.dirname(__file__)
+PACKAGES_DIR = os.path.join(CURRENT_DIR, "..", "packages")
+if PACKAGES_DIR not in sys.path:
+    sys.path.insert(0, PACKAGES_DIR)
+
 from fastapi import FastAPI
 from mangum import Mangum
 
