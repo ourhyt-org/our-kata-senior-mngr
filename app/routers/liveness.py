@@ -16,14 +16,16 @@ class LivenessResponse(BaseModel):
     reason: Optional[str] = None
     nextStep: str
 
-
 @router.post("/liveness", response_model=LivenessResponse)
 async def liveness_check(
     frames: List[UploadFile] = File(...),
     authorization: Optional[str] = Header(None),
 ):
     if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+        raise HTTPException(
+            status_code=401,
+            detail="Missing or invalid Authorization header"
+        )
 
     token = authorization.split(" ", 1)[1].strip()
 
@@ -42,13 +44,19 @@ async def liveness_check(
         raise HTTPException(status_code=400, detail="Token sin challengeType")
 
     if not frames or len(frames) < 2:
-        raise HTTPException(status_code=400, detail="Se requieren al menos 2 frames")
+        raise HTTPException(
+            status_code=400,
+            detail="Se requieren al menos 2 frames"
+        )
 
-    frame_bytes_list = []
+    frame_bytes_list: List[bytes] = []
     for f in frames:
         content = await f.read()
         if not content:
-            raise HTTPException(status_code=400, detail="Uno de los frames viene vacío")
+            raise HTTPException(
+                status_code=400,
+                detail="Uno de los frames viene vacío"
+            )
         frame_bytes_list.append(content)
 
     try:

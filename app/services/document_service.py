@@ -3,8 +3,16 @@ from dataclasses import dataclass
 from typing import Optional, Tuple, List
 from io import BytesIO
 import re
+import os 
 
 from PIL import Image
+
+import boto3
+
+s3 = boto3.client("s3")
+
+DOC_IMAGE_BUCKET = os.getenv("DOC_IMAGE_BUCKET", "ourhyt-assets")
+DOC_IMAGE_PREFIX = os.getenv("DOC_IMAGE_PREFIX", "idcard/")
 
 from app.services.ocr_service import extract_text_from_image
 
@@ -43,6 +51,35 @@ def _evaluate_image_quality(img: Image.Image) -> Tuple[float, List[str]]:
 
     quality = max(0.0, min(1.0, quality))
     return quality, reasons
+
+def _store_document_image_in_s3(
+    jwt_doc_number: str,
+    image_bytes: bytes,
+    img: Image.Image,
+) -> str:
+    ext = (img.format or "JPEG").lower()
+    if ext not in ("jpeg", "jpg", "png", "webp", "heic"):
+        ext = "jpg"
+
+    key = f"{DOC_IMAGE_PREFIX}{jwt_doc_number}.{ext}"
+
+    content_type = {
+        "jpeg": "image/jpeg",
+        "jpg": "image/jpeg",
+        "png": "image/png",
+        "webp": "image/webp",
+        "heic": "image/heic",
+    }.get(ext, "image/jpeg")
+
+    s3.put_object(
+        Bucket=DOC_IMAGE_BUCKET,
+        Key=key,
+        Body=image_bytes,
+        ContentType=content_type,
+    )
+
+    print(f"[DOCUMENT] Imagen de referencia guardada en s3://{DOC_IMAGE_BUCKET}/{key}")
+    return key
 
 
 def _extract_doc_number_from_text(text: str) -> Optional[str]:
@@ -120,6 +157,17 @@ def evaluate_document(
             next_step = "LIVENESS"
 
     reason_text = "; ".join(reasons) if reasons else None
+
+    document_ref_key: Optional[str] = None
+    if not fraud_suspected and status == "OK":
+        try:
+            document_ref_key = _store_document_image_in_s3(
+                jwt_doc_number=jwt_doc_number,
+                image_bytes=image_bytes,
+                img=img,
+            )
+        except Exception as e:
+            print(f"[DOCUMENT] Error guardando imagen de referencia en S3: {e}")
 
     return DocumentEvaluationResult(
         auth_id=auth_id,
