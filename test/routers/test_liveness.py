@@ -47,6 +47,8 @@ class TestLivenessEndpoint:
             passed=True,
             reason=None,
             next_step="COMPLETED",
+            face_match=True,
+            face_similarity=0.98,
         )
         
         token = get_valid_token()
@@ -210,6 +212,8 @@ class TestLivenessEndpoint:
             passed=False,
             reason="No se detectó parpadeo",
             next_step="REJECTED",
+            face_match=None,
+            face_similarity=None,
         )
         
         token = get_valid_token()
@@ -230,6 +234,38 @@ class TestLivenessEndpoint:
         assert data["passed"] is False
         assert data["nextStep"] == "REJECTED"
         assert data["reason"] == "No se detectó parpadeo"
+    
+    @patch("app.routers.liveness.evaluate_liveness")
+    def test_liveness_face_mismatch(self, mock_evaluate):
+        mock_evaluate.return_value = LivenessResult(
+            auth_id="test-auth-123",
+            challenge_type="BLINK",
+            liveness_score=0.95,
+            passed=False,
+            reason="El rostro no coincide con el documento presentado.",
+            next_step="REJECTED",
+            face_match=False,
+            face_similarity=0.2,
+        )
+        
+        token = get_valid_token()
+        frame1 = create_test_frame()
+        frame2 = create_test_frame()
+        
+        response = client.post(
+            "/kata/auth/liveness",
+            headers={"Authorization": f"Bearer {token}"},
+            files=[
+                ("frames", ("frame1.jpg", frame1, "image/jpeg")),
+                ("frames", ("frame2.jpg", frame2, "image/jpeg")),
+            ],
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["passed"] is False
+        assert data["nextStep"] == "REJECTED"
+        assert "rostro no coincide" in data["reason"]
     
     @patch("app.routers.liveness.evaluate_liveness")
     def test_liveness_service_error(self, mock_evaluate):
@@ -260,6 +296,8 @@ class TestLivenessEndpoint:
             passed=True,
             reason=None,
             next_step="COMPLETED",
+            face_match=True,
+            face_similarity=0.95,
         )
         
         token = get_valid_token()
