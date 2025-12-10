@@ -57,25 +57,18 @@ def _store_document_image_in_s3(
     image_bytes: bytes,
     img: Image.Image,
 ) -> str:
-    ext = (img.format or "JPEG").lower()
-    if ext not in ("jpeg", "jpg", "png", "webp", "heic"):
-        ext = "jpg"
+    key = f"{DOC_IMAGE_PREFIX}{jwt_doc_number}.jpg"
 
-    key = f"{DOC_IMAGE_PREFIX}{jwt_doc_number}.{ext}"
-
-    content_type = {
-        "jpeg": "image/jpeg",
-        "jpg": "image/jpeg",
-        "png": "image/png",
-        "webp": "image/webp",
-        "heic": "image/heic",
-    }.get(ext, "image/jpeg")
+    buffer = BytesIO()
+    img_rgb = img.convert("RGB")
+    img_rgb.save(buffer, format="JPEG", quality=90)
+    jpeg_bytes = buffer.getvalue()
 
     s3.put_object(
         Bucket=DOC_IMAGE_BUCKET,
         Key=key,
-        Body=image_bytes,
-        ContentType=content_type,
+        Body=jpeg_bytes,
+        ContentType="image/jpeg",
     )
 
     print(f"[DOCUMENT] Imagen de referencia guardada en s3://{DOC_IMAGE_BUCKET}/{key}")
