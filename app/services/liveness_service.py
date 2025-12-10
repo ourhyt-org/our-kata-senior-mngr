@@ -68,7 +68,7 @@ def _invoke_liveness_engine(
     try:
         body = json.loads(raw_body)
     except json.JSONDecodeError:
-        raise ValueError(f"Respuesta inválida del liveness-engine: {raw_body}")
+        raise ValueError(f"Respuesta inválida del liveness-engine: {raw_body[:100]}")
 
     if isinstance(body, dict) and "statusCode" in body:
         engine_payload = json.loads(body.get("body", "{}"))
@@ -136,7 +136,6 @@ def evaluate_liveness(
             next_step = "REJECTED"
 
             if error:
-                print(f"[LIVENESS] Rekognition error: {error}")
                 extra = "No se pudo verificar coincidencia de rostro con el documento."
             else:
                 extra = "No se pudo determinar si el rostro coincide con el documento."

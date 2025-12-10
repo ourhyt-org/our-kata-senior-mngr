@@ -35,6 +35,8 @@ class StartResponse(BaseModel):
 
 @router.post("/start", response_model=StartResponse)
 def start_auth(request: StartRequest):
+    print(f"[START] IN doc={request.docType}-{request.docNumber[:4]}***")
+    
     customer = get_customer_by_document(request.docType, request.docNumber)
 
     if customer is None:
@@ -50,10 +52,7 @@ def start_auth(request: StartRequest):
 
     if blocked or risk_score > MAX_ALLOWED_RISK:
         auth_id = str(uuid.uuid4())
-        print(
-            f"[START] REJECTED authId={auth_id} doc={request.docType}-{request.docNumber} "
-            f"blocked={blocked} risk={risk_score}"
-        )
+        print(f"[START] OUT authId={auth_id[:8]}... nextStep=REJECTED risk={risk_score}")
         return StartResponse(
             authId=auth_id,
             token="",
@@ -80,10 +79,7 @@ def start_auth(request: StartRequest):
 
     token = create_auth_token(claims)
 
-    print(
-        f"[START] OK authId={auth_id} doc={request.docType}-{request.docNumber} "
-        f"risk={risk_score} challenge={challenge_type}"
-    )
+    print(f"[START] OUT authId={auth_id[:8]}... nextStep=DOCUMENT challenge={challenge_type}")
 
     return StartResponse(
         authId=auth_id,

@@ -53,6 +53,7 @@ class TestInvokeLivenessEngine:
             challenge_type="BLINK",
             bucket="test-bucket",
             frame_keys=["frame_001.jpg", "frame_002.jpg"],
+            doc_number="12345678",
         )
         
         assert result["livenessScore"] == 0.95
@@ -73,6 +74,7 @@ class TestInvokeLivenessEngine:
             challenge_type="APPROACH",
             bucket="test-bucket",
             frame_keys=["frame_001.jpg"],
+            doc_number="12345678",
         )
         
         assert result["livenessScore"] == 0.8
@@ -89,6 +91,7 @@ class TestInvokeLivenessEngine:
                 challenge_type="BLINK",
                 bucket="test-bucket",
                 frame_keys=["frame.jpg"],
+                doc_number="12345678",
             )
         
         assert "Respuesta inválida" in str(exc_info.value)
@@ -104,6 +107,7 @@ class TestInvokeLivenessEngine:
             challenge_type="BLINK",
             bucket="my-bucket",
             frame_keys=["f1.jpg", "f2.jpg"],
+            doc_number="99999999",
         )
         
         mock_lambda.invoke.assert_called_once()
@@ -114,17 +118,20 @@ class TestInvokeLivenessEngine:
         assert payload_sent["challengeType"] == "BLINK"
         assert payload_sent["bucket"] == "my-bucket"
         assert payload_sent["frameKeys"] == ["f1.jpg", "f2.jpg"]
+        assert payload_sent["docNumber"] == "99999999"
 
 
 class TestEvaluateLiveness:
     
     @patch("app.services.liveness_service._invoke_liveness_engine")
     @patch("app.services.liveness_service._upload_frame_to_s3")
-    def test_evaluate_liveness_passed(self, mock_upload, mock_invoke, valid_image_bytes):
+    def test_evaluate_liveness_passed_with_face_match(self, mock_upload, mock_invoke, valid_image_bytes):
         mock_invoke.return_value = {
             "livenessScore": 0.95,
             "passed": True,
             "reason": None,
+            "faceMatch": True,
+            "faceSimilarity": 0.98,
         }
         frames = [valid_image_bytes, valid_image_bytes]
         
@@ -138,11 +145,13 @@ class TestEvaluateLiveness:
         assert result.passed is True
         assert result.liveness_score == 0.95
         assert result.next_step == "COMPLETED"
+        assert result.face_match is True
+        assert result.face_similarity == 0.98
         assert mock_upload.call_count == 2
     
     @patch("app.services.liveness_service._invoke_liveness_engine")
     @patch("app.services.liveness_service._upload_frame_to_s3")
-    def test_evaluate_liveness_failed(self, mock_upload, mock_invoke, valid_image_bytes):
+    def test_evaluate_liveness_failed_engine(self, mock_upload, mock_invoke, valid_image_bytes):
         mock_invoke.return_value = {
             "livenessScore": 0.3,
             "passed": False,
@@ -161,6 +170,75 @@ class TestEvaluateLiveness:
         assert result.liveness_score == 0.3
         assert result.next_step == "REJECTED"
         assert result.reason == "No se detectó parpadeo"
+    
+    @patch("app.services.liveness_service._invoke_liveness_engine")
+    @patch("app.services.liveness_service._upload_frame_to_s3")
+    def test_evaluate_liveness_engine_passed_face_mismatch(self, mock_upload, mock_invoke, valid_image_bytes):
+        mock_invoke.return_value = {
+            "livenessScore": 0.95,
+            "passed": True,
+            "reason": None,
+            "faceMatch": False,
+            "faceSimilarity": 0.2,
+        }
+        frames = [valid_image_bytes, valid_image_bytes]
+        
+        result = evaluate_liveness(
+            auth_id="test-auth-123",
+            challenge_type="BLINK",
+            doc_number="12345678",
+            frames_bytes=frames,
+        )
+        
+        assert result.passed is False
+        assert result.next_step == "REJECTED"
+        assert result.face_match is False
+        assert "rostro no coincide" in result.reason
+    
+    @patch("app.services.liveness_service._invoke_liveness_engine")
+    @patch("app.services.liveness_service._upload_frame_to_s3")
+    def test_evaluate_liveness_face_match_none(self, mock_upload, mock_invoke, valid_image_bytes):
+        mock_invoke.return_value = {
+            "livenessScore": 0.95,
+            "passed": True,
+            "reason": None,
+            "faceMatch": None,
+            "faceMatchInfo": {"error": "No face detected in reference image"},
+        }
+        frames = [valid_image_bytes, valid_image_bytes]
+        
+        result = evaluate_liveness(
+            auth_id="test-auth-123",
+            challenge_type="BLINK",
+            doc_number="12345678",
+            frames_bytes=frames,
+        )
+        
+        assert result.passed is False
+        assert result.next_step == "REJECTED"
+        assert "verificar coincidencia" in result.reason
+    
+    @patch("app.services.liveness_service._invoke_liveness_engine")
+    @patch("app.services.liveness_service._upload_frame_to_s3")
+    def test_evaluate_liveness_face_match_none_no_error(self, mock_upload, mock_invoke, valid_image_bytes):
+        mock_invoke.return_value = {
+            "livenessScore": 0.95,
+            "passed": True,
+            "reason": None,
+            "faceMatch": None,
+        }
+        frames = [valid_image_bytes, valid_image_bytes]
+        
+        result = evaluate_liveness(
+            auth_id="test-auth-123",
+            challenge_type="BLINK",
+            doc_number="12345678",
+            frames_bytes=frames,
+        )
+        
+        assert result.passed is False
+        assert result.next_step == "REJECTED"
+        assert "determinar si el rostro coincide" in result.reason
     
     def test_evaluate_liveness_insufficient_frames(self, valid_image_bytes):
         with pytest.raises(ValueError) as exc_info:
@@ -187,7 +265,11 @@ class TestEvaluateLiveness:
     @patch("app.services.liveness_service._invoke_liveness_engine")
     @patch("app.services.liveness_service._upload_frame_to_s3")
     def test_evaluate_liveness_unknown_doc_number(self, mock_upload, mock_invoke, valid_image_bytes):
-        mock_invoke.return_value = {"livenessScore": 0.9, "passed": True}
+        mock_invoke.return_value = {
+            "livenessScore": 0.9,
+            "passed": True,
+            "faceMatch": True,
+        }
         frames = [valid_image_bytes, valid_image_bytes]
         
         result = evaluate_liveness(
@@ -205,7 +287,11 @@ class TestEvaluateLiveness:
     @patch("app.services.liveness_service._invoke_liveness_engine")
     @patch("app.services.liveness_service._upload_frame_to_s3")
     def test_evaluate_liveness_returns_correct_type(self, mock_upload, mock_invoke, valid_image_bytes):
-        mock_invoke.return_value = {"livenessScore": 0.9, "passed": True}
+        mock_invoke.return_value = {
+            "livenessScore": 0.9,
+            "passed": True,
+            "faceMatch": True,
+        }
         frames = [valid_image_bytes, valid_image_bytes]
         
         result = evaluate_liveness(
@@ -218,11 +304,17 @@ class TestEvaluateLiveness:
         assert isinstance(result, LivenessResult)
         assert result.auth_id == "test-123"
         assert result.challenge_type == "APPROACH"
+        assert hasattr(result, "face_match")
+        assert hasattr(result, "face_similarity")
     
     @patch("app.services.liveness_service._invoke_liveness_engine")
     @patch("app.services.liveness_service._upload_frame_to_s3")
     def test_evaluate_liveness_frame_keys_format(self, mock_upload, mock_invoke, valid_image_bytes):
-        mock_invoke.return_value = {"livenessScore": 0.9, "passed": True}
+        mock_invoke.return_value = {
+            "livenessScore": 0.9,
+            "passed": True,
+            "faceMatch": True,
+        }
         frames = [valid_image_bytes, valid_image_bytes, valid_image_bytes]
         
         evaluate_liveness(
@@ -238,4 +330,47 @@ class TestEvaluateLiveness:
         assert "liveness/99999999/auth-id-456/frame_001.jpg" in keys
         assert "liveness/99999999/auth-id-456/frame_002.jpg" in keys
         assert "liveness/99999999/auth-id-456/frame_003.jpg" in keys
+    
+    @patch("app.services.liveness_service._invoke_liveness_engine")
+    @patch("app.services.liveness_service._upload_frame_to_s3")
+    def test_evaluate_liveness_invokes_engine_with_doc_number(self, mock_upload, mock_invoke, valid_image_bytes):
+        mock_invoke.return_value = {
+            "livenessScore": 0.9,
+            "passed": True,
+            "faceMatch": True,
+        }
+        frames = [valid_image_bytes, valid_image_bytes]
+        
+        evaluate_liveness(
+            auth_id="test-123",
+            challenge_type="BLINK",
+            doc_number="12345678",
+            frames_bytes=frames,
+        )
+        
+        mock_invoke.assert_called_once()
+        call_args = mock_invoke.call_args
+        assert call_args.kwargs["doc_number"] == "12345678"
+    
+    @patch("app.services.liveness_service._invoke_liveness_engine")
+    @patch("app.services.liveness_service._upload_frame_to_s3")
+    def test_evaluate_liveness_appends_face_mismatch_reason(self, mock_upload, mock_invoke, valid_image_bytes):
+        mock_invoke.return_value = {
+            "livenessScore": 0.95,
+            "passed": True,
+            "reason": "Movimiento detectado",
+            "faceMatch": False,
+            "faceSimilarity": 0.15,
+        }
+        frames = [valid_image_bytes, valid_image_bytes]
+        
+        result = evaluate_liveness(
+            auth_id="test-123",
+            challenge_type="BLINK",
+            doc_number="12345678",
+            frames_bytes=frames,
+        )
+        
+        assert "Movimiento detectado" in result.reason
+        assert "rostro no coincide" in result.reason
 

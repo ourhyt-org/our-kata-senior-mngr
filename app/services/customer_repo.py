@@ -2,7 +2,6 @@
 from typing import Optional, Dict, Any, List
 import os
 import requests
-import json
 import urllib3
 
 CUSTOMERS_API_URL = os.environ.get(
@@ -14,46 +13,31 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def fetch_all_customers() -> Optional[List[Dict[str, Any]]]:
-    print("➡️  Fetching customers from:", CUSTOMERS_API_URL)
-
     try:
         resp = requests.get(CUSTOMERS_API_URL, timeout=5, verify=False)
-        print(f"⬅️  Response status: {resp.status_code}")
-
         resp.raise_for_status()
-
         data = resp.json()
-        print("⬅️  Raw response:", json.dumps(data, indent=2))
 
         if not isinstance(data, list):
-            print("❌ ERROR: Response is not a list")
             return None
 
-        print(f"✔️ Loaded {len(data)} customers")
         return data
 
     except Exception as e:
-        print("❌ Exception while calling mock:", str(e))
+        print(f"[CUSTOMER] Error fetching customers: {str(e)[:100]}")
         return None
 
 
 def get_customer_by_document(doc_type: str, doc_number: str) -> Optional[Dict[str, Any]]:
-    print(f"🔍 Searching for customer docType={doc_type}, docNumber={doc_number}")
-
     customers = fetch_all_customers()
     if not customers:
-        print("❌ No customers loaded from mock")
         return None
 
     for c in customers:
-        print(f"Comparing with: {c.get('docNumber')}")
-
         if (
             c.get("docType") == doc_type
             and str(c.get("docNumber")) == str(doc_number)
         ):
-            print("✔️ Customer match found:", c)
             return c
 
-    print("❌ No matching customer found")
     return None

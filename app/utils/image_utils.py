@@ -2,12 +2,6 @@ from PIL import Image
 import io
 
 def evaluate_image_quality(image_bytes: bytes) -> float:
-    """
-    Evalúa calidad mínima de una captura:
-    - resolución
-    - brillo
-    - orientación básica
-    """
     img = Image.open(io.BytesIO(image_bytes))
 
     w, h = img.size
