@@ -40,6 +40,8 @@ async def upload_document(
     if not auth_id or not jwt_doc_number:
         raise HTTPException(status_code=400, detail="Token inválido o incompleto")
 
+    print(f"[DOCUMENT] IN authId={auth_id[:8]}... doc={jwt_doc_number[:4]}***")
+
     contents = await file.read()
     if not contents:
         raise HTTPException(status_code=400, detail="El archivo está vacío")
@@ -54,10 +56,8 @@ async def upload_document(
         raise HTTPException(status_code=400, detail=str(e))
 
     print(
-        f"[DOCUMENT] authId={result.auth_id} jwt_doc={jwt_doc_number} "
-        f"ocr_doc={result.ocr_doc_number} quality={result.quality_score:.2f} "
-        f"status={result.document_status} match={result.doc_match} "
-        f"fraud={result.fraud_suspected} reason={result.reason}"
+        f"[DOCUMENT] OUT authId={result.auth_id[:8]}... "
+        f"status={result.document_status} match={result.doc_match} fraud={result.fraud_suspected}"
     )
 
     return DocumentResponse(

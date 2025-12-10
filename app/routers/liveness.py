@@ -43,6 +43,8 @@ async def liveness_check(
     if not challenge_type:
         raise HTTPException(status_code=400, detail="Token sin challengeType")
 
+    print(f"[LIVENESS] IN authId={auth_id[:8]}... frames={len(frames)} challenge={challenge_type}")
+
     if not frames or len(frames) < 2:
         raise HTTPException(
             status_code=400,
@@ -68,6 +70,11 @@ async def liveness_check(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    print(
+        f"[LIVENESS] OUT authId={result.auth_id[:8]}... "
+        f"passed={result.passed} score={result.liveness_score:.2f} faceMatch={result.face_match}"
+    )
 
     return LivenessResponse(
         authId=result.auth_id,

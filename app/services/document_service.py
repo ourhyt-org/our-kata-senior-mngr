@@ -71,7 +71,6 @@ def _store_document_image_in_s3(
         ContentType="image/jpeg",
     )
 
-    print(f"[DOCUMENT] Imagen de referencia guardada en s3://{DOC_IMAGE_BUCKET}/{key}")
     return key
 
 
@@ -118,7 +117,6 @@ def evaluate_document(
 
     try:
         ocr_text = extract_text_from_image(image_bytes)
-        print("[OCR] Texto extraído (truncado):", ocr_text[:300])
     except Exception as e:
         reasons.append(f"Error en OCR Textract: {str(e)}")
         ocr_text = ""
@@ -160,7 +158,7 @@ def evaluate_document(
                 img=img,
             )
         except Exception as e:
-            print(f"[DOCUMENT] Error guardando imagen de referencia en S3: {e}")
+            print(f"[DOCUMENT] Error S3: {str(e)[:80]}")
 
     return DocumentEvaluationResult(
         auth_id=auth_id,
