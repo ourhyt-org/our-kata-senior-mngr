@@ -105,7 +105,6 @@ class TestDocumentEndpoint:
     def test_upload_document_token_missing_auth_id(self, mock_verify):
         mock_verify.return_value = {
             "doc_number": "12345678",
-            # auth_id faltante
         }
         
         image = create_test_image()
